@@ -6,6 +6,7 @@ class Settings(BaseSettings):
   MINIO_BUCKET_NAME: str
   MINIO_ROOT_USER: str
   MINIO_ROOT_PASSWORD: str
+  RABBITMQ_URL: str
 
   model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.models import Video
 from app.services.storage import stream_upload_to_s3
+from app.services.queue import publish_transcode_task
 
 router = APIRouter(prefix="/videos", tags=["Videos"])
 
@@ -22,14 +23,16 @@ async def upload_video(file: UploadFile = File(...), db: AsyncSession = Depends(
     new_video = Video(
       filename=file.filename,
       s3_key=s3_key,
-      status="uploaded"
+      status="queued"
     )
 
     db.add(new_video)
     await db.commit()
     await db.refresh(new_video)
 
-    return {"id": new_video.id, "status": new_video.status, "message": "Upload complete"}
+    await publish_transcode_task(new_video.id, s3_key)
+
+    return {"id": new_video.id, "status": new_video.status, "message": "Upload complete and task queued"}
   except Exception as e:
     await db.rollback()
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Upload failed: {str(e)}")
