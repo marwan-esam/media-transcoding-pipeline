@@ -1,14 +1,23 @@
 name: media-transcoding-pipeline
 
 services:
+
+  migration:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/code
+    command: alembic upgrade head
   api:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
-    environment:
-      - MINIO_ENDPOINT=http://minio:9000
     depends_on:
       db:
         condition: service_healthy
@@ -18,9 +27,28 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      migration:
+        condition: service_completed_successfully
     volumes:
       - .:/code
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  worker:
+    build: .
+    env_file:
+      - .env
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    volumes:
+      - .:/code
+    command: python -m app.worker.main
 
   db:
     image: postgres:16-alpine
@@ -45,6 +73,7 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
+      - "9000:9000"
       - "9001:9001"
     volumes:
       - minio_data:/data
