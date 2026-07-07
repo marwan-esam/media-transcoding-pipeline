@@ -8,6 +8,7 @@ class Settings(BaseSettings):
   MINIO_ROOT_USER: str
   MINIO_ROOT_PASSWORD: str
   RABBITMQ_URL: str
+  REDIS_URL: str
 
   model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
