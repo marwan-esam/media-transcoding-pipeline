@@ -1,9 +1,12 @@
 import redis.asyncio as aioredis
+from typing import Annotated
 from uuid import uuid4, UUID
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
+from pydantic import StringConstraints
 from app.db.database import get_db
+from app.schemas.video import VideoResponse
 from app.db.models import Video
 from app.core.config import settings
 from app.services.storage import stream_upload_to_s3
@@ -11,19 +14,27 @@ from app.services.queue import publish_transcode_task
 
 router = APIRouter(prefix="/videos", tags=["Videos"])
 
-@router.post("/upload", status_code=status.HTTP_201_CREATED)
-async def upload_video(file: UploadFile = File(...), db: AsyncSession = Depends(get_db)):
+CleanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
+@router.post("/upload", status_code=status.HTTP_201_CREATED, response_model=VideoResponse)
+async def upload_video(
+  file: UploadFile = File(...), 
+  title: CleanTitle | None = Form(None),
+  db: AsyncSession = Depends(get_db)
+):
   if not file.filename.endswith(('mp4', '.mkv', '.avi')):
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid video format")
   
   file_ext = file.filename.split('.')[-1]
   s3_key = f"{uuid4().hex}.{file_ext}"
 
+  final_title = title if title else ".".join(file.filename.split(".")[:-1])
+
   try:
 
     await stream_upload_to_s3(file, s3_key)
 
     new_video = Video(
+      title=final_title,
       filename=file.filename,
       s3_key=s3_key,
       status="queued"
@@ -35,7 +46,8 @@ async def upload_video(file: UploadFile = File(...), db: AsyncSession = Depends(
 
     await publish_transcode_task(new_video.id, s3_key)
 
-    return {"id": new_video.id, "status": new_video.status, "message": "Upload complete and task queued"}
+    return new_video
+
   except Exception as e:
     await db.rollback()
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Upload failed: {str(e)}")
@@ -91,3 +103,25 @@ async def video_status_websocket(websocket: WebSocket, video_id: str, db: AsyncS
       await pubsub.unsubscribe(channel_name)
     if "redis_client" in locals():
       await redis_client.aclose()
+
+
+@router.get("", status_code=status.HTTP_200_OK, response_model=list[VideoResponse])
+async def list_videos(limit: int = 50, db: AsyncSession = Depends(get_db)):
+  videos_result = await db.execute(select(Video).order_by(desc(Video.created_at)).limit(limit))
+  return videos_result.scalars().all()
+
+
+@router.get("/{video_id}", status_code=status.HTTP_200_OK, response_model=VideoResponse)
+async def get_video_details(video_id: str, db: AsyncSession = Depends(get_db)):
+  try:
+    valid_uuid = UUID(video_id)
+  except ValueError:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid video ID format")
+  
+  video_result = await db.execute(select(Video).where(Video.id == valid_uuid))
+  video_record = video_result.scalar_one_or_none()
+
+  if not video_record:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+  
+  return video_record

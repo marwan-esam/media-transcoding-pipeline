@@ -86,12 +86,34 @@ async def process_video(video_id: str, s3_key: str):
       if process.returncode != 0:
         raise Exception("FFmpeg processing failed")
       
+      print(f"[{video_id}] Extracting thumbnail...")
+      thumb_path = os.path.join(output_dir, "thumbnail.jpg")
+      thumb_time = 2.0 if total_duration >= 2.0 else (total_duration / 2.0)
+
+      thumb_process = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y", "-ss", str(thumb_time), "-i", input_path,
+        "-vframes", "1", "-q:v", "2", thumb_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+      )
+
+      await thumb_process.wait()
+      if thumb_process.returncode != 0:
+        print(f"[{video_id}] Warning: Thumbnail extraction failled. Continuing")
+      
       print(f"[{video_id}] Uploading HLS segments to MinIO...")
       for root, dirs, files in os.walk(output_dir):
         for file_name in files:
           file_path = os.path.join(root, file_name)
           s3_key_processed = f"{video_id}/{file_name}"
-          content_type = "application/vnd.apple.mpegurl" if file_name.endswith(".m3u8") else "video/mp2t"
+
+          content_type = "application/octet-stream"
+          if file_name.endswith(".m3u8"):
+            content_type = "application/vnd.apple.mpegurl"
+          elif file_name.endswith(".ts"):
+            content_type = "video/mp2t"
+          elif file_name.endswith(".jpg"):
+            content_type = "image/jpeg"
 
           await s3.upload_file(
             file_path,
@@ -100,11 +122,15 @@ async def process_video(video_id: str, s3_key: str):
             ExtraArgs={"ContentType": content_type}
           )
       print(f"[{video_id}] Success! HLS stream ready")
+      return total_duration
       
 
-async def update_video_status(video_id: str, new_status: str):
+async def update_video_status(video_id: str, new_status: str, duration: float = None):
   async with AsyncSessionLocal() as session:
-    stmt = update(Video).where(Video.id == UUID(video_id)).values(status=new_status)
+    update_data = {"status": new_status}
+    if duration is not None:
+      update_data["duration"] = duration
+    stmt = update(Video).where(Video.id == UUID(video_id)).values(**update_data)
     await session.execute(stmt)
     await session.commit()
 
@@ -166,10 +192,10 @@ async def main():
 
             await update_video_status(video_id, "processing")
             await publish_progress(video_id, "processing")
-            
-            await process_video(video_id, s3_key)
 
-            await update_video_status(video_id, "completed")
+            duration = await process_video(video_id, s3_key)
+
+            await update_video_status(video_id, "completed", duration=duration)
             await publish_progress(video_id, "completed")
 
             await message.ack()
