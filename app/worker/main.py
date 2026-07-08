@@ -26,15 +26,28 @@ async def process_video(video_id: str, s3_key: str):
 
   with tempfile.TemporaryDirectory() as tmpdir:
     input_path = os.path.join(tmpdir, f"input_{s3_key}")
-    output_path = os.path.join(tmpdir, f"output_{s3_key}")
+
+    output_dir = os.path.join(tmpdir, f"output_{video_id}")
+    os.makedirs(output_dir, exist_ok=True)
+
+    playlist_path = os.path.join(output_dir, "playlist.m3u8")
+    segment_pattern = os.path.join(output_dir, "segment_%03d.ts")
 
     async with get_s3_client() as s3:
       print(f"[{video_id}] Downloading {s3_key}...")
       await s3.download_file(settings.MINIO_BUCKET_NAME, s3_key, input_path)
 
-      print(f"[{video_id}] Transcoding {s3_key} to 720p...")
+      print(f"[{video_id}] Transcoding {s3_key} to HLS (720p)...")
       process = await asyncio.create_subprocess_exec(
-        "ffmpeg", "-y", "-i", input_path, "-vf", "scale=-2:720", output_path,
+        "ffmpeg", "-y", "-i", input_path,
+        "-profile:v", "main", "-level", "3.1",
+        "-s", "1280x720", "-c:v", "libx264", "-b:v", "2000k",
+        "-c:a", "aac", "-b:a", "128k",
+        "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
+        "-hls_time", "10",
+        "-hls_list_size", "0",
+        "-hls_segment_filename", segment_pattern,
+        playlist_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
       )
@@ -73,10 +86,20 @@ async def process_video(video_id: str, s3_key: str):
       if process.returncode != 0:
         raise Exception("FFmpeg processing failed")
       
-      print(f"[{video_id}] Uploading processed video...")
-      processed_key = f"720_{s3_key}"
-      await s3.upload_file(output_path, settings.MINIO_PROCESSED_BUCKET_NAME, processed_key)
-      print(f"[{video_id}] Success!")
+      print(f"[{video_id}] Uploading HLS segments to MinIO...")
+      for root, dirs, files in os.walk(output_dir):
+        for file_name in files:
+          file_path = os.path.join(root, file_name)
+          s3_key_processed = f"{video_id}/{file_name}"
+          content_type = "application/vnd.apple.mpegurl" if file_name.endswith(".m3u8") else "video/mp2t"
+
+          await s3.upload_file(
+            file_path,
+            settings.MINIO_PROCESSED_BUCKET_NAME,
+            s3_key_processed,
+            ExtraArgs={"ContentType": content_type}
+          )
+      print(f"[{video_id}] Success! HLS stream ready")
       
 
 async def update_video_status(video_id: str, new_status: str):
@@ -143,7 +166,7 @@ async def main():
 
             await update_video_status(video_id, "processing")
             await publish_progress(video_id, "processing")
-
+            
             await process_video(video_id, s3_key)
 
             await update_video_status(video_id, "completed")
