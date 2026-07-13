@@ -61,3 +61,30 @@ async def stream_upload_to_s3(file: UploadFile, s3_key: str) -> str:
     except Exception as e:
       await s3.abort_multipart_upload(Bucket=settings.MINIO_BUCKET_NAME, Key=s3_key, UploadId=mpu_id)
       raise e
+    
+
+async def delete_s3_files(video_id: str, s3_key: str):
+  async with get_s3_client() as s3:
+    try:
+      await s3.delete_object(
+        Bucket=settings.MINIO_BUCKET_NAME,
+        Key=s3_key
+      )
+    
+      paginator = s3.get_paginator("list_objects_v2")
+      prefix = f"{video_id}/"
+
+      async for page in paginator.paginate(Bucket=settings.MINIO_PROCESSED_BUCKET_NAME, Prefix=prefix):
+        if "Contents" in page:
+          objects_to_delete = [{"Key": obj["Key"]} for obj in page["Contents"]]
+
+          if objects_to_delete:
+            await s3.delete_objects(
+              Bucket=settings.MINIO_PROCESSED_BUCKET_NAME,
+              Delete={"Objects": objects_to_delete}
+            )
+
+      print(f"[{video_id}] Sucessfully wiped all files from storage")
+    except Exception as e:
+      print(f"[{video_id}] Failed to delete files from storage: {str(e)}")
+      

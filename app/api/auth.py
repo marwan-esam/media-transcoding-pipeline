@@ -3,8 +3,8 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, status, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel, EmailStr
-from datetime import timedelta
+from pydantic import BaseModel, EmailStr, ConfigDict
+from datetime import timedelta, datetime
 from app.db.database import get_db
 from app.db.models import User
 from app.core.config import settings
@@ -20,6 +20,14 @@ class UserCreate(BaseModel):
 class UserLogin(BaseModel):
   email: EmailStr
   password: str
+
+class UserResponse(BaseModel):
+  id: uuid.UUID
+  email: EmailStr
+  is_active: bool
+  created_at: datetime
+
+  model_config = ConfigDict(from_attributes=True)
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -74,3 +82,7 @@ async def getnerate_ws_ticket(current_user: User = Depends(get_current_user)):
     await redis_client.aclose()
 
   return {"ticket": ticket}
+
+@router.get("/users/me", response_model=UserResponse)
+async def get_current_user_profile(current_user: User = Depends(get_current_user)):
+  return current_user
