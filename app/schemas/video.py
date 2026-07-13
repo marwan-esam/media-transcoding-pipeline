@@ -17,7 +17,7 @@ class VideoResponse(BaseModel):
   def stream_url(self) -> str | None:
     if self.status == "completed":
       domain = settings.MINIO_ENDPOINT.replace("http://minio:9000", "http://localhost:9000")
-      return f"{domain}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/playlist.m3u8"
+      return f"{domain}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/master.m3u8"
     
     return None
   

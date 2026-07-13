@@ -37,17 +37,27 @@ async def process_video(video_id: str, s3_key: str):
       print(f"[{video_id}] Downloading {s3_key}...")
       await s3.download_file(settings.MINIO_BUCKET_NAME, s3_key, input_path)
 
-      print(f"[{video_id}] Transcoding {s3_key} to HLS (720p)...")
+      print(f"[{video_id}] Transcoding to Adaptive HLS (1080p, 720p, 480p)...")
       process = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-i", input_path,
-        "-profile:v", "main", "-level", "3.1",
-        "-s", "1280x720", "-c:v", "libx264", "-b:v", "2000k",
-        "-c:a", "aac", "-b:a", "128k",
-        "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
+        "-filter_complex", "[0:v]split=3[v1][v2][v3];[v1]scale=w=1920:h=1080[v1out];[v2]scale=w=1280:h=720[v2out];[v3]scale=w=854:h=480[v3out]",
+        "-map", "[v1out]", "-c:v:0", "libx264", "-b:v:0", "5000k", "-maxrate:v:0", "5300k", "-bufsize:v:0", "7500k",
+        "-map", "[v2out]", "-c:v:1", "libx264", "-b:v:1", "2500k", "-maxrate:v:1", "2700k", "-bufsize:v:1", "3750k",
+        "-map", "[v3out]", "-c:v:2", "libx264", "-b:v:2", "1000k", "-maxrate:v:2", "1100k", "-bufsize:v:2", "1500k",
+        "-map", "0:a", "-map", "0:a", "-map", "0:a",
+        "-c:a", "aac",
+        "-b:a:0", "192k",
+        "-b:a:1", "128k",
+        "-b:a:2", "96k",
+        "-f", "hls",
         "-hls_time", "10",
-        "-hls_list_size", "0",
-        "-hls_segment_filename", segment_pattern,
-        playlist_path,
+        "-hls_playlist_type", "vod",
+        "-hls_flags", "independent_segments",
+        "-hls_segment_type", "mpegts",
+        "-hls_segment_filename", os.path.join(output_dir, "stream_%v", "data%03d.ts"),
+        "-master_pl_name", "master.m3u8",
+        "-var_stream_map", "v:0,a:0 v:1,a:1 v:2,a:2",
+        os.path.join(output_dir, "stream_%v", "playlist.m3u8"),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
       )
@@ -101,11 +111,12 @@ async def process_video(video_id: str, s3_key: str):
       if thumb_process.returncode != 0:
         print(f"[{video_id}] Warning: Thumbnail extraction failled. Continuing")
       
-      print(f"[{video_id}] Uploading HLS segments to MinIO...")
+      print(f"[{video_id}] Uploading Master Playlist and multi-res segments to MinIO...")
       for root, dirs, files in os.walk(output_dir):
         for file_name in files:
           file_path = os.path.join(root, file_name)
-          s3_key_processed = f"{video_id}/{file_name}"
+          rel_path = os.path.relpath(file_path, output_dir)
+          s3_key_processed = f"{video_id}/{rel_path}"
 
           content_type = "application/octet-stream"
           if file_name.endswith(".m3u8"):
@@ -121,7 +132,7 @@ async def process_video(video_id: str, s3_key: str):
             s3_key_processed,
             ExtraArgs={"ContentType": content_type}
           )
-      print(f"[{video_id}] Success! HLS stream ready")
+      print(f"[{video_id}] Success! Multi-resolution stream ready")
       return total_duration
       
 
