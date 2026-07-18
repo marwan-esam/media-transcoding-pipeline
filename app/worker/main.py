@@ -33,6 +33,9 @@ async def process_video(video_id: str, s3_key: str):
     playlist_path = os.path.join(output_dir, "playlist.m3u8")
     segment_pattern = os.path.join(output_dir, "segment_%03d.ts")
 
+    for i in range(3):
+      os.makedirs(os.path.join(output_dir, f"stream_{i}"), exist_ok=True)
+
     async with get_s3_client() as s3:
       print(f"[{video_id}] Downloading {s3_key}...")
       await s3.download_file(settings.MINIO_BUCKET_NAME, s3_key, input_path)
@@ -40,24 +43,36 @@ async def process_video(video_id: str, s3_key: str):
       print(f"[{video_id}] Transcoding to Adaptive HLS (1080p, 720p, 480p)...")
       process = await asyncio.create_subprocess_exec(
         "ffmpeg", "-y", "-i", input_path,
-        "-filter_complex", "[0:v]split=3[v1][v2][v3];[v1]scale=w=1920:h=1080[v1out];[v2]scale=w=1280:h=720[v2out];[v3]scale=w=854:h=480[v3out]",
-        "-map", "[v1out]", "-c:v:0", "libx264", "-b:v:0", "5000k", "-maxrate:v:0", "5300k", "-bufsize:v:0", "7500k",
-        "-map", "[v2out]", "-c:v:1", "libx264", "-b:v:1", "2500k", "-maxrate:v:1", "2700k", "-bufsize:v:1", "3750k",
-        "-map", "[v3out]", "-c:v:2", "libx264", "-b:v:2", "1000k", "-maxrate:v:2", "1100k", "-bufsize:v:2", "1500k",
-        "-map", "0:a", "-map", "0:a", "-map", "0:a",
-        "-c:a", "aac",
-        "-b:a:0", "192k",
-        "-b:a:1", "128k",
-        "-b:a:2", "96k",
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-filter_complex", (
+          "[0:v]split=3[v1][v2][v3];"
+          "[v1]scale=w=1920:h=1080[v1out];"
+          "[v2]scale=w=1280:h=720[v2out];"
+          "[v3]scale=w=854:h=480[v3out];"
+          "[0:a?]anull[main_audio];"
+          "[1:a][main_audio]amix=inputs=2:weights=0 1:normalize=0:dropout_transition=0[clean_audio];"
+          "[clean_audio]asplit=3[a1][a2][a3]"
+        ),
+        "-map", "[v1out]", "-map", "[a1]",
+        "-map", "[v2out]", "-map", "[a2]",
+        "-map", "[v3out]", "-map", "[a3]",
+        "-c:v", "libx264",
+        "-b:v:0", "5000k", "-maxrate:v:0", "5300k", "-bufsize:v:0", "7500k",
+        "-b:v:1", "2500k", "-maxrate:v:1", "2700k", "-bufsize:v:1", "3750k",
+        "-b:v:2", "1000k", "-maxrate:v:2", "1100k", "-bufsize:v:2", "1500k",
+        "-c:a", "aac", "-ac", "2",
+        "-b:a:0", "192k", "-b:a:1", "128k", "-b:a:2", "96k",
+        "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
+        "-shortest",
         "-f", "hls",
         "-hls_time", "10",
         "-hls_playlist_type", "vod",
         "-hls_flags", "independent_segments",
         "-hls_segment_type", "mpegts",
-        "-hls_segment_filename", os.path.join(output_dir, "stream_%v", "data%03d.ts"),
+        "-hls_segment_filename", f"{output_dir}/stream_%v/data%03d.ts",
         "-master_pl_name", "master.m3u8",
         "-var_stream_map", "v:0,a:0 v:1,a:1 v:2,a:2",
-        os.path.join(output_dir, "stream_%v", "playlist.m3u8"),
+        f"{output_dir}/stream_%v/playlist.m3u8",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
       )
@@ -67,14 +82,16 @@ async def process_video(video_id: str, s3_key: str):
 
       total_duration = 0.0
       last_reported_percent = -1
-
+      max_current_time = 0.0
+      full_log = []
       while True:
         
-        chunk = await process.stderr.read(1024)
+        chunk = await process.stderr.read(65536)
         if not chunk:
           break
 
         output_text = chunk.decode("utf-8", errors="ignore")
+        full_log.append(output_text)
 
         if total_duration == 0.0:
           duration_match = duration_regex.search(output_text)
@@ -84,8 +101,13 @@ async def process_video(video_id: str, s3_key: str):
         if total_duration > 0.0:
           time_matches = time_regex.findall(output_text)
           if time_matches:
-            current_time = parse_time_to_seconds(time_matches[-1])
-            percentage = int((current_time / total_duration) * 100)
+            # current_time = parse_time_to_seconds(time_matches[-1])
+            for match in time_matches:
+              t_sec = parse_time_to_seconds(match)
+              if t_sec > max_current_time:
+                max_current_time = t_sec
+
+            percentage = int((max_current_time / total_duration) * 100)
 
             if percentage > last_reported_percent and percentage <= 100:
               await publish_progress(video_id, f"{percentage}%")
@@ -94,6 +116,7 @@ async def process_video(video_id: str, s3_key: str):
       await process.wait()
 
       if process.returncode != 0:
+        print("".join(full_log[-20:]))
         raise Exception("FFmpeg processing failed")
       
       print(f"[{video_id}] Extracting thumbnail...")
