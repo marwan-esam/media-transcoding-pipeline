@@ -1,7 +1,7 @@
 import redis.asyncio as aioredis
 from typing import Annotated
 from uuid import uuid4, UUID
-from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status, WebSocket, WebSocketDisconnect, Query, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from pydantic import StringConstraints
@@ -13,14 +13,17 @@ from app.services.storage import stream_upload_to_s3, delete_s3_files
 from app.services.queue import publish_transcode_task
 from app.api.dependencies import get_current_user
 from app.db.models import User
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/videos", tags=["Videos"])
 
 CleanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=3)]
 @router.post("/upload", status_code=status.HTTP_201_CREATED, response_model=VideoResponse)
+@limiter.limit("2/minute")
 async def upload_video(
+  request: Request,
   file: UploadFile = File(...), 
-  title: CleanTitle | None = Form(None),
+  title: str | None = Form(None),
   db: AsyncSession = Depends(get_db),
   current_user: User = Depends(get_current_user)
 ):
@@ -29,8 +32,8 @@ async def upload_video(
   
   file_ext = file.filename.split('.')[-1]
   s3_key = f"{uuid4().hex}.{file_ext}"
-
-  final_title = title if title else ".".join(file.filename.split(".")[:-1])
+  validated_title = CleanTitle(title)
+  final_title = validated_title if title else ".".join(file.filename.split(".")[:-1])
 
   try:
 

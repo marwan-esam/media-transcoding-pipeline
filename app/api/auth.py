@@ -1,6 +1,6 @@
 import uuid
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, status, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, EmailStr, ConfigDict
@@ -10,6 +10,7 @@ from app.db.models import User
 from app.core.config import settings
 from app.api.dependencies import get_current_user
 from app.core.security import get_password_hash, verify_password, create_access_token
+from app.core.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -31,7 +32,8 @@ class UserResponse(BaseModel):
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+@limiter.limit("3/minute")
+async def register(request: Request, user_data: UserCreate, db: AsyncSession = Depends(get_db)):
   user_result = await db.execute(select(User).where(User.email == user_data.email))
   if user_result.scalar_one_or_none():
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
@@ -46,7 +48,8 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login")
-async def login(response: Response, user_data: UserLogin, db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, response: Response, user_data: UserLogin, db: AsyncSession = Depends(get_db)):
   user_result = await db.execute(select(User).where(User.email == user_data.email))
   user = user_result.scalar_one_or_none()
 
