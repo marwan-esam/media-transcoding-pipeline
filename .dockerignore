@@ -2,4 +2,5 @@ venv/
 .git/
 __pycache__/
 .env
+.env.test
 *.pyc
