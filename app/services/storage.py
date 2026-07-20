@@ -17,10 +17,14 @@ async def ensure_bucket_exists():
   async with get_s3_client() as s3:
     try:
       await s3.head_bucket(Bucket=settings.MINIO_BUCKET_NAME)
-      await s3.head_bucket(Bucket=settings.MINIO_PROCESSED_BUCKET_NAME)
     except Exception:
       await s3.create_bucket(Bucket=settings.MINIO_BUCKET_NAME)
+
+    try:
+      await s3.head_bucket(Bucket=settings.MINIO_PROCESSED_BUCKET_NAME)
+    except Exception:
       await s3.create_bucket(Bucket=settings.MINIO_PROCESSED_BUCKET_NAME)
+
 
 
 async def stream_upload_to_s3(file: UploadFile, s3_key: str) -> str:

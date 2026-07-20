@@ -23,7 +23,7 @@ CleanTitle = Annotated[str, StringConstraints(strip_whitespace=True, min_length=
 async def upload_video(
   request: Request,
   file: UploadFile = File(...), 
-  title: str | None = Form(None),
+  title: CleanTitle | None = Form(None),
   db: AsyncSession = Depends(get_db),
   current_user: User = Depends(get_current_user)
 ):
@@ -32,8 +32,7 @@ async def upload_video(
   
   file_ext = file.filename.split('.')[-1]
   s3_key = f"{uuid4().hex}.{file_ext}"
-  validated_title = CleanTitle(title)
-  final_title = validated_title if title else ".".join(file.filename.split(".")[:-1])
+  final_title = title if title else ".".join(file.filename.split(".")[:-1])
 
   try:
 
