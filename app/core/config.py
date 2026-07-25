@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
   DATABASE_URL: str
   MINIO_ENDPOINT: str
+  PUBLIC_MINIO_URL: str
   MINIO_BUCKET_NAME: str
   MINIO_PROCESSED_BUCKET_NAME: str
   MINIO_ROOT_USER: str

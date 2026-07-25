@@ -16,15 +16,13 @@ class VideoResponse(BaseModel):
   @computed_field
   def stream_url(self) -> str | None:
     if self.status == "completed":
-      domain = settings.MINIO_ENDPOINT.replace("http://minio:9000", "http://localhost:9000")
-      return f"{domain}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/master.m3u8"
+      return f"{settings.PUBLIC_MINIO_URL}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/master.m3u8"
     
     return None
   
   @computed_field
   def thumbnail_url(self) -> str | None:
     if self.status == "completed":
-      domain = settings.MINIO_ENDPOINT.replace("http://minio:9000", "http://localhost:9000")
-      return f"{domain}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/thumbnail.jpg"
+      return f"{settings.PUBLIC_MINIO_URL}/{settings.MINIO_PROCESSED_BUCKET_NAME}/{self.id}/thumbnail.jpg"
     
     return None
