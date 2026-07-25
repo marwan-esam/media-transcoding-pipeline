@@ -50,14 +50,14 @@ jobs:
     name: Deploy to Production
     needs: test
     runs-on: ubuntu-latest
-    if: github.refs == 'res/head/main'
+    if: github.ref == 'res/heads/main'
 
     steps:
       - name: SSH and Deploy
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.HOST }}
-          useranme: ${{ secrets.USERNAME }}
+          username: ${{ secrets.USERNAME }}
           key: ${{ secrets.KEY }}
           script: |
             cd media-transcoding-pipeline
