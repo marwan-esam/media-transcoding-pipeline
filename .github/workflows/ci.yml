@@ -32,6 +32,7 @@ jobs:
           MINIO_ROOT_USER=${{ secrets.MINIO_ROOT_USER }}
           MINIO_ROOT_PASSWORD=${{ secrets.MINIO_ROOT_PASSWORD }}
           MINIO_ENDPOINT=${{ secrets.MINIO_ENDPOINT }}
+          PUBLIC_MINIO_URL=${{ secrets.PUBLIC_MINIO_URL }}
           MINIO_BUCKET_NAME=${{ secrets.MINIO_BUCKET_NAME }}
           MINIO_PROCESSED_BUCKET_NAME=${{ secrets.MINIO_PROCESSED_BUCKET_NAME }}
           SECRET_KEY=${{ secrets.SECRET_KEY }}
