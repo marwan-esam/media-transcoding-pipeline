@@ -50,7 +50,7 @@ jobs:
     name: Deploy to Production
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'res/heads/main'
+    if: github.ref == 'refs/heads/main'
 
     steps:
       - name: SSH and Deploy
