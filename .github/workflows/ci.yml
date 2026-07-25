@@ -45,3 +45,21 @@ jobs:
         if: always()
         run: |
           docker compose -f docker-compose.test.yml down -v
+
+  deploy:
+    name: Deploy to Production
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.refs == 'res/head/main'
+
+    steps:
+      - name: SSH and Deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          useranme: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          script: |
+            cd media-transcoding-pipeline
+            git pull origin main
+            docker compose up -d --build
