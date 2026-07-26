@@ -1,3 +1,9 @@
-http://130.61.140.130 {
-  reverse_proxy api:8000
+transcoder-marwan.developer.li {
+  handle /processed-videos/* {
+    reverse_proxy minio:9000
+  }
+
+  handle {
+    reverse_proxy api:8000
+  }
 }
