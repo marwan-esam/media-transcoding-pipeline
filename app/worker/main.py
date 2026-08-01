@@ -83,14 +83,16 @@ async def process_video(video_id: str, s3_key: str):
       total_duration = 0.0
       last_reported_percent = -1
       max_current_time = 0.0
+      output_text = ""
       full_log = []
       while True:
         
-        chunk = await process.stderr.read(65536)
+        chunk = await process.stderr.read(1024)
         if not chunk:
           break
 
-        output_text = chunk.decode("utf-8", errors="ignore")
+        decoded = chunk.decode("utf-8", errors="ignore")
+        output_text += decoded
         full_log.append(output_text)
 
         if total_duration == 0.0:
@@ -102,16 +104,25 @@ async def process_video(video_id: str, s3_key: str):
           time_matches = time_regex.findall(output_text)
           if time_matches:
             # current_time = parse_time_to_seconds(time_matches[-1])
-            for match in time_matches:
-              t_sec = parse_time_to_seconds(match)
-              if t_sec > max_current_time:
-                max_current_time = t_sec
+            # for match in time_matches:
+            #   t_sec = parse_time_to_seconds(match)
+            #   if t_sec > max_current_time:
+            #     max_current_time = t_sec
+
+            latest_time_str = time_matches[-1]
+            t_sec = parse_time_to_seconds(latest_time_str)
+
+            if t_sec > max_current_time:
+              max_current_time = t_sec
 
             percentage = int((max_current_time / total_duration) * 100)
 
             if percentage > last_reported_percent and percentage <= 100:
               await publish_progress(video_id, f"{percentage}%")
               last_reported_percent = percentage
+
+        if len(output_text) > 2048:
+          output_text = output_text[-1024:]
 
       await process.wait()
 
