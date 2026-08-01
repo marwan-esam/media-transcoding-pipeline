@@ -18,6 +18,7 @@ An asynchronous, highly scalable video processing architecture. This system allo
 ## Live Production Endpoints
 The application is actively deployed and secured via SSL/TLS.
 * **REST API & Swagger UI:** [https://transcoder-marwan.developer.li/docs](https://transcoder-marwan.developer.li/docs)
+* **Frontend UI:** [https://media-transcoding-site.vercel.app/](https://media-transcoding-site.vercel.app/)
 * **WebSocket Engine:** `wss://transcoder-marwan.developer.li/videos/{video_id}/ws`
 * **Video Asset Storage (MinIO):** `https://transcoder-marwan.developer.li/processed-videos/`
 
