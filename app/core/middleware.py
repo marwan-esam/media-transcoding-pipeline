@@ -23,7 +23,7 @@ class LimitUploadSizeMiddleware:
             status_code=413,
             content={"detail": f"Payload Too Large. Maximum size is {max_mb:.1f} MB"}
           )
-          await response(scope, receive, scope)
+          await response(scope, receive, send)
           return
       except (ValueError, TypeError):
         pass
