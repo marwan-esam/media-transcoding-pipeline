@@ -62,8 +62,8 @@ async def login(request: Request, response: Response, user_data: UserLogin, db: 
     key="access_token",
     value=f"Bearer {access_token}",
     httponly=True,
-    secure=False,
-    samesite="lax",
+    secure=True,
+    samesite="none",
     max_age=3600
   )
 
